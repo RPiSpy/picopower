@@ -1,3 +1,7 @@
+# Files that may contain keys or personal information
+config.py
+secrets.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
