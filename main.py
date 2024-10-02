@@ -1,9 +1,12 @@
-# Import libraries
+# Import standard libraries
 import time
 import math
 import network
 import random
+import neopixel
 from machine import Pin, I2C, ADC, Timer
+
+# Import installed packages
 from ssd1306 import SSD1306_I2C
 from simple import MQTTClient
 
@@ -12,7 +15,7 @@ import secrets as s
 import config as c
 import functions as f
 
-# Large Font
+# Large Font for OLED display
 from writer import Writer
 import fonts.freesans20 as freesans20
 
@@ -64,11 +67,6 @@ def mqtt_subscribeTopics():
     client.subscribe(s.topic_sub_grid)
     client.subscribe(s.topic_sub_solar)
     client.subscribe(s.topic_sub_batt_power)
-
-def reboot_pico():
-    print('Rebooting ...')
-    time.sleep(10)
-    machine.reset()
 
 #-------------------------------------------------------
 # OLED Function definitions
@@ -178,6 +176,62 @@ def setBrightness(timer):
             oled.poweron()
             print("OLED turned ON")
 
+def getColour(baseColour,brightness=20):
+    # Take a colour tuple and adjust the values using the brightness value
+    brightness=brightness/100
+    if brightness>0 and brightness<1:
+        adjustedColour=tuple([int(x*brightness) for x in baseColour])
+    else:
+        adjustedColour=baseColour
+    return adjustedColour
+
+def updateNeopixels(batteryPower,solarPower,gridPower,evPower):
+    # Update the 4 neopixels
+    
+    # Battery Power
+    if batteryPower==9999:
+        pixels[0] = getColour(c.COLOUR_PURPLE,c.NEOPIXEL_BRIGHTNESS)
+    elif batteryPower>100:
+        pixels[0] = getColour(c.COLOUR_RED,c.NEOPIXEL_BRIGHTNESS)
+    elif batteryPower>=0:
+        pixels[0] = getColour(c.COLOUR_ORANGE,c.NEOPIXEL_BRIGHTNESS)
+    elif batteryPower==0:
+        pixels[0] = getColour(c.COLOUR_YELLOW,c.NEOPIXEL_BRIGHTNESS)
+    else:
+        pixels[0] = getColour(c.COLOUR_GREEN,c.NEOPIXEL_BRIGHTNESS)
+        
+    # Solar Power
+    if solarPower==9999:
+        pixels[1] = getColour(c.COLOUR_PURPLE,c.NEOPIXEL_BRIGHTNESS)
+    elif solarPower>1000:
+        pixels[1] = getColour(c.COLOUR_GREEN,c.NEOPIXEL_BRIGHTNESS)
+    elif solarPower>0:
+        pixels[1] = getColour(c.COLOUR_ORANGE,c.NEOPIXEL_BRIGHTNESS)
+    else:
+        pixels[1] = getColour(c.COLOUR_YELLOW,c.NEOPIXEL_BRIGHTNESS)
+        
+    # Grid Power
+    if gridPower==9999:
+        pixels[2] = getColour(c.COLOUR_PURPLE,c.NEOPIXEL_BRIGHTNESS)
+    elif gridPower>100:
+        pixels[2] = getColour(c.COLOUR_RED,c.NEOPIXEL_BRIGHTNESS)
+    elif gridPower>=30:
+        pixels[2] = getColour(c.COLOUR_ORANGE,c.NEOPIXEL_BRIGHTNESS)
+    elif gridPower<-30:
+        pixels[2] = getColour(c.COLOUR_GREEN,c.NEOPIXEL_BRIGHTNESS)
+    else:
+        pixels[2] = getColour(c.COLOUR_YELLOW,c.NEOPIXEL_BRIGHTNESS)
+    
+    # EV Power
+    pixels[3] = getColour(c.COLOUR_CLEAR,c.NEOPIXEL_BRIGHTNESS)
+    
+    pixels.write()
+
+def reboot_pico():
+    print('Rebooting ...')
+    time.sleep(10)
+    machine.reset()
+
 #-------------------------------------------------------
 # Start main script
 #-------------------------------------------------------
@@ -188,6 +242,12 @@ oled = SSD1306_I2C(128, 32, i2c)
 oled.contrast(c.OLED_BRIGHTNESS) # Brightness 0-255
 oled.invert(c.OLED_INVERT)       # Invert 0 or 1
 oled_off=False
+
+# Setup Neopixel strip
+#pixels = neopixel.NeoPixel(machine.Pin(c.NEOPIXEL_GPIO), 4)    # RGB
+pixels = neopixel.NeoPixel(machine.Pin(c.NEOPIXEL_GPIO), 4, bpp=4)   # RGBW
+pixels.fill(getColour(c.COLOUR_PURPLE,3))
+pixels.write()
 
 # Setup ADC
 #--------------REMOVE IF NO ADC FITTED------------------
@@ -217,7 +277,6 @@ while not wlan.isconnected():
     time.sleep(2)
     counter=counter+1
     if counter>10:
-        print(".")
         print("Failed to connect to WiFi")
         oled.fill(0)
         oled.text("Failed to connect WiFi", 0, 20)
@@ -226,8 +285,9 @@ while not wlan.isconnected():
         oled.fill(0)
         oled.show()
         counter=1
-        
-print("")
+        #exit
+print(".")
+
 print(wlan.isconnected())
 print(wlan.ifconfig())
 
@@ -276,6 +336,7 @@ while everyThingOk:
         oled.fill(0)
         oled.text("No network connection", 0, 20)
         oled.show()
+        time.sleep(5)
         everyThingOk = False
 
     try:
@@ -283,16 +344,15 @@ while everyThingOk:
         client.ping()
     except:
         print("MQTT connection has failed!")
+        time.sleep(5)
         everyThingOk = False
-        ##client = mqtt_connect()
-        #time.sleep(2)
-        ## Subscribe to MQTT topics
-        #mqtt_subscribeTopics()
     
     # Get random data
     #batterySOC,batteryPower,solarPower=f.getRandomData()
     
     if everyThingOk is True:
+        updateNeopixels(batteryPower,solarPower,gridPower,0)
+        
         drawStatusLarge(batterySOC,batteryPower)
         time.sleep(10)
     
@@ -305,11 +365,15 @@ while everyThingOk:
         time.sleep(5)
 
     else:
-        print("Everything is not OK")
+        pixels.fill(getColour(c.COLOUR_RED,10))
+        pixels.write()        
         reboot_pico()
-        
 
+# Required Libraries
+# ============================================================================
+# neopixel - using default library from firmware
+#   
+# micropython-ssd1306 by Stefan Lehmann installed via Thonny
+#   https://docs.micropython.org/en/latest/esp8266/tutorial/ssd1306.html
 # Micropython umqttsimple library
-# https://mpython.readthedocs.io/en/master/library/mPython/umqtt.simple.html
-# Micropython ssd1306
-# https://docs.micropython.org/en/latest/esp8266/tutorial/ssd1306.html
+#   https://mpython.readthedocs.io/en/master/library/mPython/umqtt.simple.html
