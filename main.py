@@ -8,15 +8,16 @@ from machine import Pin, I2C, ADC, Timer
 
 # Import installed packages
 from ssd1306 import SSD1306_I2C
-from simple import MQTTClient
+#from simple import MQTTClient
+from umqtt.robust import MQTTClient
+from writer import Writer
 
 # Import local files
-import secrets as s
 import config as c
+import secrets as s
 import functions as f
 
 # Large Font for OLED display
-from writer import Writer
 import fonts.freesans20 as freesans20
 
 #-------------------------------------------------------
@@ -55,7 +56,7 @@ def mqtt_sub_cb(topic, msg):
     sgridPower  = str(gridPower)
 
 def mqtt_connect():
-    client = MQTTClient(s.mqtt_client_id, s.mqtt_server, port=1883, keepalive=60,user=s.mqtt_user, password=s.mqtt_password)
+    client = MQTTClient(s.mqtt_client_id, s.mqtt_server, port=1883, keepalive=120 ,user=s.mqtt_user, password=s.mqtt_password)
     client.set_callback(mqtt_sub_cb)
     client.connect()
     print('Connected to %s MQTT Broker'%(s.mqtt_server))
@@ -193,7 +194,7 @@ def updateNeopixels(batteryPower,solarPower,gridPower,evPower):
         pixels[0] = getColour(c.COLOUR_PURPLE,c.NEOPIXEL_BRIGHTNESS)
     elif batteryPower>100:
         pixels[0] = getColour(c.COLOUR_RED,c.NEOPIXEL_BRIGHTNESS)
-    elif batteryPower>=0:
+    elif batteryPower>50:
         pixels[0] = getColour(c.COLOUR_ORANGE,c.NEOPIXEL_BRIGHTNESS)
     elif batteryPower==0:
         pixels[0] = getColour(c.COLOUR_YELLOW,c.NEOPIXEL_BRIGHTNESS)
@@ -215,9 +216,9 @@ def updateNeopixels(batteryPower,solarPower,gridPower,evPower):
         pixels[2] = getColour(c.COLOUR_PURPLE,c.NEOPIXEL_BRIGHTNESS)
     elif gridPower>100:
         pixels[2] = getColour(c.COLOUR_RED,c.NEOPIXEL_BRIGHTNESS)
-    elif gridPower>=30:
+    elif gridPower>=50:
         pixels[2] = getColour(c.COLOUR_ORANGE,c.NEOPIXEL_BRIGHTNESS)
-    elif gridPower<-30:
+    elif gridPower<-50:
         pixels[2] = getColour(c.COLOUR_GREEN,c.NEOPIXEL_BRIGHTNESS)
     else:
         pixels[2] = getColour(c.COLOUR_YELLOW,c.NEOPIXEL_BRIGHTNESS)
@@ -251,7 +252,7 @@ pixels.write()
 
 # Setup ADC
 #--------------REMOVE IF NO ADC FITTED------------------
-#adc_pin = Pin(27, mode=Pin.IN)
+#adc_pin = Pin(c.ADC_GPIO, mode=Pin.IN)
 #adc_obj = ADC(adc_pin)
 #max_adc_val = 255  # value we want when ADC on 3.3V (65535)
 #contrastTimer = Timer()
@@ -274,7 +275,7 @@ while not wlan.isconnected():
     print(".", end="")
     oled.text(">"*counter, 0, 20)
     oled.show()
-    time.sleep(2)
+    time.sleep(3)
     counter=counter+1
     if counter>10:
         print("Failed to connect to WiFi")
@@ -329,6 +330,10 @@ time.sleep(1)
 
 everyThingOk = True
 
+loopCounter = 0
+loopSleep = 1
+screenCounter = 0
+
 while everyThingOk:
     
     if wlan.isconnected() is False:
@@ -338,39 +343,62 @@ while everyThingOk:
         oled.show()
         time.sleep(5)
         everyThingOk = False
-
-    try:
-        client.check_msg()
-        client.ping()
-    except:
-        print("MQTT connection has failed!")
-        time.sleep(5)
-        everyThingOk = False
     
     # Get random data
     #batterySOC,batteryPower,solarPower=f.getRandomData()
     
     if everyThingOk is True:
-        updateNeopixels(batteryPower,solarPower,gridPower,0)
         
-        drawStatusLarge(batterySOC,batteryPower)
-        time.sleep(10)
-    
-        # Draw battery on screen
-        drawBatteryLarge()
-        time.sleep(10)
+        # Update neopixels
+        updateNeopixels(batteryPower,solarPower,gridPower,0)
+             
+        # Every 5 loops check for messages
+        if loopCounter%5==0:
+            try:
+                print(" Check msg")
+                client.check_msg()
+            except:
+                print("MQTT connection has failed!")
+                oled.fill(0)
+                oled.text("MQTT connection has failed!", 0, 20)
+                oled.show()
+                time.sleep(5)
+                everyThingOk = False
+        
+        # Every 30 loops publish message
+        if loopCounter%30==0:
+                print(" Publish msg")
+                client.publish('picopower/status','online') 
+               
+        # Every 10 loops update screen
+        if loopCounter%10==0:
+            screenCounter+=1
+            print(" Update Screen %s"%(str(screenCounter)))
+            if screenCounter==1:
+                drawStatusLarge(batterySOC,batteryPower)
+            elif screenCounter==2:
+                # Draw battery on screen
+                drawBatteryLarge()
+            elif screenCounter==3:
+                drawStatusSmall()
+                screenCounter=0
 
-        # Send data to screen
-        drawStatusSmall()
-        time.sleep(5)
+        # Every 30 loops reset counter
+        if loopCounter%30==0:
+            loopCounter=0
 
     else:
         pixels.fill(getColour(c.COLOUR_RED,10))
         pixels.write()        
         reboot_pico()
 
+    loopCounter += 1
+    print("%s Loop counter"%(str(loopCounter)))
+    time.sleep(loopSleep)
+
 # Required Libraries
 # ============================================================================
+# network  - using default library from firmware
 # neopixel - using default library from firmware
 #   
 # micropython-ssd1306 by Stefan Lehmann installed via Thonny
