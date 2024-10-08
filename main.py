@@ -58,6 +58,7 @@ def mqtt_sub_cb(topic, msg):
 def mqtt_connect():
     client = MQTTClient(s.mqtt_client_id, s.mqtt_server, port=1883, keepalive=120 ,user=s.mqtt_user, password=s.mqtt_password)
     client.set_callback(mqtt_sub_cb)
+    client.set_last_will(s.mqtt_status_topic, 'offline', retain=True)
     client.connect()
     print('Connected to %s MQTT Broker'%(s.mqtt_server))
     return client
@@ -352,8 +353,8 @@ while everyThingOk:
         # Update neopixels
         updateNeopixels(batteryPower,solarPower,gridPower,0)
              
-        # Every 5 loops check for messages
-        if loopCounter%5==0:
+        # Every 3 loops check for messages
+        if loopCounter%3==0:
             try:
                 print(" Check msg")
                 client.check_msg()
@@ -365,10 +366,10 @@ while everyThingOk:
                 time.sleep(5)
                 everyThingOk = False
         
-        # Every 30 loops publish message
-        if loopCounter%30==0:
+        # Every 20 loops publish message
+        if loopCounter%20==0:
                 print(" Publish msg")
-                client.publish('picopower/status','online') 
+                client.publish(s.mqtt_status_topic,'online') 
                
         # Every 10 loops update screen
         if loopCounter%10==0:
@@ -383,8 +384,8 @@ while everyThingOk:
                 drawStatusSmall()
                 screenCounter=0
 
-        # Every 30 loops reset counter
-        if loopCounter%30==0:
+        # Every 20 loops reset counter
+        if loopCounter%20==0:
             loopCounter=0
 
     else:
